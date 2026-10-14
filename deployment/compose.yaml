@@ -1,0 +1,63 @@
+name: tynato-monitoring
+services:
+  monitor-api:
+    build:
+      context: ../backend
+      dockerfile: Dockerfile
+    image: tynato-monitoring:local
+    container_name: monitor-api
+    env_file:
+      - ./api.env
+    environment:
+      MONITORING_DATA_DIR: /var/lib/monitoring
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8080", "--no-server-header"]
+    ports:
+      - "127.0.0.1:18080:8080"
+    volumes:
+      - monitoring-data:/var/lib/monitoring
+    restart: unless-stopped
+    init: true
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m,noexec,nosuid,nodev
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 256m
+    cpus: 0.50
+    pids_limit: 100
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health/live', timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+  monitor-worker:
+    build:
+      context: ../backend
+      dockerfile: Dockerfile
+    image: tynato-monitoring:local
+    container_name: monitor-worker
+    env_file:
+      - ./worker.env
+    environment:
+      MONITORING_DATA_DIR: /var/lib/monitoring
+    command: ["python", "-m", "app.worker"]
+    volumes:
+      - monitoring-data:/var/lib/monitoring
+    restart: unless-stopped
+    init: true
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m,noexec,nosuid,nodev
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 256m
+    cpus: 0.50
+    pids_limit: 100
+
+volumes:
+  monitoring-data:
+    name: tynato-monitoring-data

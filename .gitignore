@@ -1,0 +1,29 @@
+# Secret configuration: commit only *.env.example templates
+.env
+.env.*
+*.env
+**/*.env
+!.env.example
+!**/.env.example
+!**/*.env.example
+frontend/.env.local
+
+# Python
+**/.venv/
+**/__pycache__/
+*.py[cod]
+.pytest_cache/
+.coverage
+
+# Node/Next
+**/node_modules/
+**/.next/
+**/out/
+
+# Local persistent state/logs
+.local-data/
+*.sqlite3
+*.sqlite3-wal
+*.sqlite3-shm
+*.log
+.DS_Store
