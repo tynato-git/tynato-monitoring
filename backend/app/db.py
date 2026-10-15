@@ -139,8 +139,12 @@ def sanitize_data(value: Any, depth: int = 0) -> Any:
         return value
     return str(value)[:1000]
 
+NO_EMAIL_CATEGORIES = {"CRM_META_CONFIG_ISSUE"}
 
 def _enqueue_alert(conn: sqlite3.Connection, incident: sqlite3.Row | dict, kind: str) -> None:
+   
+    if incident["category"] in NO_EMAIL_CATEGORIES:
+        return
     recipients = csv_env("ALERT_EMAIL_RECIPIENTS")
     now = utc_now()
     for recipient in recipients:
@@ -148,7 +152,6 @@ def _enqueue_alert(conn: sqlite3.Connection, incident: sqlite3.Row | dict, kind:
             (id,incident_id,kind,recipient,status,attempts,next_attempt_at,created_at,updated_at)
             VALUES (?,?,?,?,'pending',0,?,?,?)""",
             (str(uuid.uuid4()), incident["id"], kind, recipient, now, now, now))
-
 
 def _active_incident(conn: sqlite3.Connection, key: str):
     return conn.execute("SELECT * FROM incidents WHERE incident_key=? AND status IN ('open','acknowledged') ORDER BY first_detected_at DESC LIMIT 1", (key,)).fetchone()
