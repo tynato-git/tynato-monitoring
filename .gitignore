@@ -27,3 +27,11 @@ frontend/.env.local
 *.sqlite3-shm
 *.log
 .DS_Store
+
+# Local Oracle deployment artifacts
+/_oracle_stage/
+/backend/tynato-monitoring-oracle.zip
+/tynato-monitoring-oracle.zip
+
+# Local environment secrets
+/frontend/.env.local
