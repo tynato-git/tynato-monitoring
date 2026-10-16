@@ -24,8 +24,19 @@ async def lifespan(_: FastAPI):
     logger.info("Monitoring API started; local durable store: %s", os.getenv("MONITORING_DATA_DIR", ".local-data"))
     yield
 
+_DOCS_ON = os.getenv("MONITORING_DOCS_ENABLED", "false").lower() == "true"
+app = FastAPI(
+    title="Tynato Monitoring API",
+    version="0.1.0",
+    docs_url="/docs" if _DOCS_ON else None,
+    redoc_url="/redoc" if _DOCS_ON else None,
+    openapi_url="/openapi.json" if _DOCS_ON else None,
+    lifespan=lifespan,
+)
 
-app = FastAPI(title="Tynato Monitoring API", version="0.1.0", docs_url=None, redoc_url=None, openapi_url=None, lifespan=lifespan)
+from .component_routes import router as component_router
+app.include_router(component_router)
+
 _origins = csv_env("MONITORING_CORS_ORIGINS")
 app.add_middleware(CORSMiddleware, allow_origins=_origins or ["http://localhost:3000"],
                    allow_credentials=True, allow_methods=["GET", "POST", "PATCH", "OPTIONS"],
