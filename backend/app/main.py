@@ -6,7 +6,7 @@ import uuid
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from typing import Literal, Any
-
+from .probe_routes import router as probe_router
 from fastapi import FastAPI, Header, HTTPException, Query, Request, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field, ConfigDict, field_validator
@@ -41,7 +41,7 @@ _origins = csv_env("MONITORING_CORS_ORIGINS")
 app.add_middleware(CORSMiddleware, allow_origins=_origins or ["http://localhost:3000"],
                    allow_credentials=True, allow_methods=["GET", "POST", "PATCH", "OPTIONS"],
                    allow_headers=["Authorization", "Content-Type", "X-Monitor-Timestamp", "X-Monitor-Signature"])
-
+app.include_router(probe_router)
 
 class MonitoringEvent(BaseModel):
     model_config = ConfigDict(extra="forbid")
