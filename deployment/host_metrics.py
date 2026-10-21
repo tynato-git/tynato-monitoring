@@ -1,4 +1,4 @@
-import hashlib
+﻿import hashlib
 import hmac
 import json
 import os
@@ -264,16 +264,6 @@ def main():
                     item["active"] = False
                     item["success_count"] = 0
 
-        try:
-            with urllib.request.urlopen("http://127.0.0.1:8001/openapi.json", timeout=3) as response:
-                invoice_ok = response.status == 200
-        except Exception:
-            invoice_ok = False
-        checks.append((
-            "invoice-api-ready", "invoice_api", "INVOICE_API_UNAVAILABLE",
-            not invoice_ok, {"ready": invoice_ok}, "high", 3,
-            "Invoice API is not responding; invoice generation will fail",
-        ))
 
     
 
