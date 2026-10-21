@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { FormEvent } from "react";
@@ -6,6 +6,7 @@ import type { Session } from "@supabase/supabase-js";
 import ComponentCards from "./ComponentCards";
 import { getSupabase } from "@/lib/supabase";
 import styles from "./page.module.css";
+import { useComponents, type MonitoredComponent } from "./useComponents";
 
 type Service = {
   service: string;
@@ -52,7 +53,6 @@ type IncidentList = { items?: Incident[] };
 type IncidentFilter = "active" | "open" | "acknowledged" | "resolved" | "all";
 type Action = "acknowledge" | "resolve";
 type CoverageTone = "good" | "danger" | "warning" | "neutral";
-type CoverageItem = { name: string; status: string; tone: CoverageTone; evidence: string };
 
 const RAW_API = process.env.NEXT_PUBLIC_MONITORING_API_URL ?? "";
 const API = RAW_API.trim().replace(/\/+$/, "");
@@ -121,64 +121,6 @@ function probeStatus(service?: Service): { label: string; tone: CoverageTone; ev
   return { label: "UNKNOWN", tone: "neutral", evidence: `Unrecognized probe status: ${service.status}.` };
 }
 
-function matchingActiveIncident(items: Incident[], pattern: RegExp): Incident | undefined {
-  return items.find((item) =>
-    (item.status === "open" || item.status === "acknowledged") &&
-    pattern.test(`${item.service} ${item.category} ${item.summary}`)
-  );
-}
-
-function operationalCoverage(
-  services: Service[],
-  workers: Worker[],
-  activeIncidents: Incident[],
-  apiError: string,
-  lastUpdated: string | null,
-): CoverageItem[] {
-  const findProbe = (...names: string[]) => services.find((s) => names.includes(s.service.toLowerCase()));
-  const findWorker = (...names: string[]) => workers.find((w) => names.includes(w.worker_name.toLowerCase()));
-  const items: CoverageItem[] = [];
-
-  items.push(apiError
-    ? { name: "Monitoring API (dashboard request)", status: "ERROR", tone: "danger", evidence: apiError }
-    : { name: "Monitoring API (dashboard request)", status: lastUpdated ? "CONNECTED" : "WAITING", tone: lastUpdated ? "good" : "neutral", evidence: lastUpdated ? `Last successful dashboard request: ${timestamp(lastUpdated)}. This does not test every CRM endpoint.` : "No successful API snapshot has loaded yet." });
-
-  const apiProbe = probeStatus(findProbe("crm_api", "crm-api", "crm_api_health"));
-  const apiIncident = matchingActiveIncident(activeIncidents, /crm_api_down|crm api unavailable|crm_api_health/i);
-  items.push(apiIncident
-    ? { name: "CRM API availability", status: "ERROR", tone: "danger", evidence: `${apiIncident.summary} (${apiIncident.category}).` }
-    : { name: "CRM API availability", status: apiProbe.label, tone: apiProbe.tone, evidence: apiProbe.evidence });
-
-  const dbProbe = probeStatus(findProbe("crm_database", "crm-db", "crm_db"));
-  const dbIncident = matchingActiveIncident(activeIncidents, /crm_database|crm_db|database unavailable/i);
-  items.push(dbIncident
-    ? { name: "CRM database", status: "ERROR", tone: "danger", evidence: `${dbIncident.summary} (${dbIncident.category}).` }
-    : { name: "CRM database", status: dbProbe.label, tone: dbProbe.tone, evidence: dbProbe.evidence });
-
-  const worker = findWorker("monitor-worker");
-  if (!worker) {
-    items.push({ name: "Monitoring worker", status: "NO HEARTBEAT", tone: "neutral", evidence: "No monitor-worker heartbeat is present in the returned data." });
-  } else {
-    const workerAge = ageMs(worker.last_seen_at);
-    const healthy = ["healthy", "ok"].includes(worker.status.toLowerCase());
-    if (!healthy) items.push({ name: "Monitoring worker", status: "ERROR", tone: "danger", evidence: `Reported status: ${worker.status}.` });
-    else if (workerAge === null || workerAge > STALE_AFTER_MS) items.push({ name: "Monitoring worker", status: "STALE", tone: "warning", evidence: `Last heartbeat: ${timestamp(worker.last_seen_at)}.` });
-    else items.push({ name: "Monitoring worker", status: "HEALTHY", tone: "good", evidence: `Last heartbeat: ${timestamp(worker.last_seen_at)}.` });
-  }
-
-  const capabilities = [
-    { name: "Meta integration / sync", pattern: /meta|facebook|instagram/i },
-    { name: "Invoice generation", pattern: /invoice|billing/i },
-    { name: "Audio evaluation / AI", pattern: /audio|evaluation|transcription|gemini/i },
-  ];
-  for (const capability of capabilities) {
-    const incident = matchingActiveIncident(activeIncidents, capability.pattern);
-    items.push(incident
-      ? { name: capability.name, status: "ERROR", tone: "danger", evidence: `${incident.summary} (${incident.category}).` }
-      : { name: capability.name, status: "NO DIRECT SIGNAL", tone: "neutral", evidence: "No dedicated health probe or verified recent success signal is exposed for this component. It must not be shown as healthy until instrumentation is connected." });
-  }
-  return items;
-}
 
 function incidentDetailEntries(details?: Record<string, unknown> | null): [string, string][] {
   if (!details || typeof details !== "object") return [];
@@ -255,12 +197,15 @@ export default function Home() {
   const inFlightRef = useRef(false);
   const mountedRef = useRef(true);
 
-  // Top-level hook: passed to ComponentCards. Must stay above every early return.
+  // Stable token accessor. Shared by the coverage data and ComponentCards.
   const getToken = useCallback(async (): Promise<string | undefined> => {
     if (!supabase) return undefined;
     const { data } = await supabase.auth.getSession();
     return data.session?.access_token;
   }, [supabase]);
+
+  // Hooks must run unconditionally, before any early return below.
+  const components = useComponents(API, getToken);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -471,7 +416,6 @@ export default function Home() {
   const services = overview?.services ?? [];
   const workers = overview?.workers ?? [];
   const hasSnapshot = Boolean(overview);
-  const coverage = operationalCoverage(services, workers, activeIncidents, dataError, lastUpdated);
 
   return (
     <main className={styles.dashboard}>
@@ -517,23 +461,6 @@ export default function Home() {
 
       <ComponentCards api={API} getToken={getToken} />
 
-      <section className={styles.panel}>
-        <div className={styles.panelHeader}>
-          <div>
-            <h2>Operational coverage</h2>
-            <p>Component-level status from probes, worker heartbeats and active incidents. Gray means monitoring is not yet wired.</p>
-          </div>
-          <span className={`${styles.pill} ${dataError ? styles.pillDanger : styles.pillGood}`}>{dataError ? "REQUEST ERROR" : "DASHBOARD API CONNECTED"}</span>
-        </div>
-        <div className={styles.coverageGrid}>
-          {coverage.map((item) => (
-            <article key={item.name} className={`${styles.coverageCard} ${item.tone === "danger" ? styles.coverageError : item.tone === "warning" ? styles.coverageWarning : item.tone === "good" ? styles.coverageGood : styles.coverageNeutral}`}>
-              <div className={styles.coverageTop}><strong>{item.name}</strong><StatusPill value={item.status} tone={item.tone} /></div>
-              <p>{item.evidence}</p>
-            </article>
-          ))}
-        </div>
-      </section>
 
       <section className={styles.panel}>
         <div className={styles.panelHeader}>
